@@ -1,4 +1,6 @@
 const { SHA256 } = require("crypto-js");
+const EC = require('elliptic').ec
+const ec = new EC('secp256k1');
 
 class Block {
     constructor(timestamp, transaction, previousHash = "") {
@@ -22,6 +24,14 @@ class Block {
         console.log("Blcok mined " + this.hash);
     }
 
+    hasValidTransactions(){
+        for(const tx  of this.transaction){
+            if(!tx.isValid())
+                return false
+        }
+        return true;
+    }
+
 }
 
 class Transaction{
@@ -30,14 +40,38 @@ class Transaction{
         this.to = to;
         this.amount = amount;
     }
+
+    calculateHast(){
+        return SHA256(this.from + this.to + this.amount).toString();
+    }
+
+    signTransaction(sigingKey){
+        if(sigingKey.getPublic('hex') !== this.from)
+            throw new Error('Error')
+
+        const hashTx = this.calculateHast();
+        const sig = sigingKey.sign(hashTx , 'base64');
+        this.signature = sig.toDER('hex');
+    }
+
+    isValid(){
+        if(this.from === null) return true;
+
+        if(!this.signature || this.signature.length ===0){
+            throw new Error("No signature")
+        }
+
+        const publicKey = ec.keyFromPublic(this.from , 'hex')
+        return publicKey.verify(this.calculateHast() , this.signature)
+    }
 }
 
 class Blockchain {
     constructor() {
         this.chain = [this.createGenesisBlock()];
-        this.difficulty = 5;
+        this.difficulty = 4;
         this.pendingTransaction = [];
-        this.miningReward = 50;
+        this.miningReward = 100;
     }
 
     createGenesisBlock() {
@@ -58,7 +92,13 @@ class Blockchain {
         this.pendingTransaction = [new Transaction(null , miningRewardAddress , this.miningReward)];
     }
 
-    createTransaction(transaction){
+    addTransaction(transaction){
+        if(!transaction.from || !transaction.to)
+            throw new Error("Transaction failed")
+        
+        if(!transaction.isValid())
+            throw new Error("Invalid transaction")    
+
         this.pendingTransaction.push(transaction);
     }
 
@@ -82,6 +122,9 @@ class Blockchain {
             const currentBlock = this.chain[i];
             const previousBlock = this.chain[i - 1];
 
+            if(!currentBlock.hasValidTransactions())
+                return false
+
             if (currentBlock.hash !== currentBlock.calculateHast())
                 return false
 
@@ -93,12 +136,20 @@ class Blockchain {
 }
 
 let kebabCoin = new Blockchain();
+const myKey = ec.keyFromPrivate('348c45c37381511d7769c5304b8a1ef3950bedbbd5b025a58c7b0b348bc02fcf')
+const myWalletAddress = myKey.getPublic('hex')
 
-console.log("Mining block 1")
-kebabCoin.minePedingTransaction('alex')
+const tx1 = new Transaction(myWalletAddress , 'public' , 20);
+tx1.signTransaction(myKey);
+kebabCoin.addTransaction(tx1)
 
-console.log("Mining block 2")
-kebabCoin.minePedingTransaction('salut')
+console.log("Mining block")
+kebabCoin.minePedingTransaction(myWalletAddress)
+
+console.log("Mining block")
+kebabCoin.minePedingTransaction(myWalletAddress)
+
+console.log('My balance is ' + kebabCoin.getBalanceOfAddress(myWalletAddress))
 
 //console.log(JSON.stringify(kebabCoin , null , 4));
 //console.log(kebabCoin.validChain())
